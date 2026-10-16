@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sloopy Doopid Process Explorer</title>
+<meta name="description" content="DADABOTS – Sloopy Doopid (bounce that ass in a lissajous): the AISC26 extended process document, synced to the music video.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a sticky "stage" (video, beat-locked lissajous, song timeline) beside the scrolling process doc;
+   the doc follows the video, and every timestamp seeks it. One committed night-club palette from the video itself. */
+:root {
+  --bg: #120c1a;          /* the room after 2am */
+  --panel: #1b1326;       /* stage surfaces */
+  --line: #33264a;        /* hairlines, grid */
+  --ink: #ede7f6;         /* text */
+  --muted: #a397b8;       /* secondary text */
+  --violet: #b48cff;      /* the video's purple light */
+  --lime: #cdf26a;        /* the lissajous trace green */
+  --pink: #ff6fd6;        /* evaluate flash */
+  --f-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --f-body: "Literata", Georgia, "Times New Roman", serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --stage-w: min(46vw, 760px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 400 1.0625rem/1.68 var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--violet); text-underline-offset: 3px; }
+a:hover { color: var(--lime); }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; border-radius: 4px; }
+
+.app {
+  display: grid; grid-template-columns: var(--stage-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* ---------------- stage ---------------- */
+.stage {
+  position: sticky; top: 0; height: 100vh; overflow: hidden;
+  display: flex; flex-direction: column; gap: 14px;
+  padding-block: 18px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: 18px;
+  background: linear-gradient(180deg, #1a1126 0%, var(--bg) 70%);
+  border-right: 1px solid var(--line);
+}
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand .band { font: 600 .72rem/1 var(--f-mono); letter-spacing: .22em; text-transform: uppercase; color: var(--muted); }
+.brand .docname { font: 400 .72rem/1 var(--f-mono); color: var(--muted); }
+.player {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; max-width: 100%;
+  background: #000; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 18px 50px -20px rgba(180, 140, 255, .45);
+}
+.player iframe, .player #yt { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.player .fallback {
+  position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+  font: 400 .9rem/1.5 var(--f-mono); color: var(--muted);
+}
+
+.now { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; align-items: center; }
+#liss { width: 112px; height: 112px; border-radius: 8px; background: #0d0913; box-shadow: inset 0 0 0 1px var(--line); }
+.now .meta { min-width: 0; }
+.now .clock { font: 600 .82rem/1 var(--f-mono); color: var(--lime); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.now .clock span { color: var(--muted); font-weight: 400; }
+.now h2 {
+  margin: 6px 0 4px; font: 700 clamp(1rem, 1.6vw, 1.35rem)/1.15 var(--f-display); letter-spacing: -.01em;
+  text-wrap: balance;
+}
+.now .ratio { font: 400 .74rem/1.3 var(--f-mono); color: var(--muted); }
+
+.timeline { position: relative; height: 46px; cursor: pointer; touch-action: none; }
+.timeline .track { position: absolute; left: 0; right: 0; top: 20px; height: 6px; border-radius: 3px; background: var(--line); }
+.timeline .fill { position: absolute; left: 0; top: 20px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--violet), var(--lime)); width: 0; }
+.timeline .mark {
+  position: absolute; top: 12px; width: 2px; height: 22px; background: var(--muted); opacity: .55; transform: translateX(-1px);
+  border: 0; padding: 0; cursor: pointer;
+}
+.timeline .mark.on { background: var(--lime); opacity: 1; }
+.timeline .mark:hover { opacity: 1; background: var(--ink); }
+.timeline .head {
+  position: absolute; top: 14px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%;
+  background: var(--lime); box-shadow: 0 0 0 4px rgba(205, 242, 106, .2); pointer-events: none; left: 0;
+}
+.timeline .ticks { position: absolute; left: 0; right: 0; top: 34px; height: 12px;
+  font: 400 .66rem/1 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.timeline .tip {
+  position: absolute; bottom: 30px; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font: 600 .72rem/1 var(--f-mono); background: var(--ink); color: var(--bg); padding: 5px 7px; border-radius: 4px;
+}
+
+.chapters { position: relative; min-height: 0; flex: 1; overflow-y: auto; margin: 0; padding: 0 4px 0 0; list-style: none;
+  border-top: 1px solid var(--line); scrollbar-width: thin; }
+.chapters li { border-bottom: 1px solid var(--line); }
+.chapters button {
+  width: 100%; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: baseline;
+  padding: 8px 6px; background: none; border: 0; color: var(--muted); text-align: left; cursor: pointer;
+  font: 400 .9rem/1.3 var(--f-body);
+}
+.chapters button .t { font: 600 .78rem/1 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chapters button:hover { color: var(--ink); }
+.chapters li.on button { color: var(--ink); background: rgba(180, 140, 255, .1); }
+.chapters li.on button .t { color: var(--lime); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font: 400 .8rem/1 var(--f-mono); color: var(--muted); }
+.toggle { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; user-select: none; }
+.toggle input { accent-color: var(--lime); width: 15px; height: 15px; }
+.controls { gap: 16px; }
+
+/* ---------------- doc ---------------- */
+.doc {
+  min-width: 0;
+  padding-block: 56px 120px;
+  padding-left: clamp(20px, 4vw, 64px); padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+.doc > * { max-width: 680px; }
+.hero { margin-bottom: 64px; }
+.hero .eyebrow { font: 600 .74rem/1 var(--f-mono); letter-spacing: .22em; text-transform: uppercase; color: var(--violet); }
+.hero h1 {
+  margin: 14px 0 10px; font: 900 clamp(2.4rem, 5.2vw, 4.4rem)/.95 var(--f-display); letter-spacing: -.035em;
+  text-wrap: balance;
+}
+.hero h1 em { font-style: normal; color: var(--lime); }
+.hero .sub { font: italic 400 1.25rem/1.4 var(--f-body); color: var(--muted); margin: 0 0 22px; }
+.hero .credits { font: 400 .82rem/1.8 var(--f-mono); color: var(--muted); }
+.hero .credits b { color: var(--ink); font-weight: 600; }
+
+section { position: relative; padding: 40px 0 8px; scroll-margin-top: 24px; }
+section + section { border-top: 1px solid var(--line); }
+section::before {
+  content: ""; position: absolute; left: clamp(-20px, -2.2vw, -12px); top: 46px; width: 3px; height: 0;
+  background: var(--lime); border-radius: 2px; transition: height .35s ease;
+}
+section.on::before { height: 52px; }
+.sec-head { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.eyebrow-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.cue {
+  font: 600 .78rem/1 var(--f-mono); font-variant-numeric: tabular-nums;
+  color: var(--bg); background: var(--violet); border: 0; border-radius: 999px; padding: 6px 10px 6px 9px; cursor: pointer;
+  display: inline-flex; gap: 6px; align-items: center;
+}
+.cue::before { content: ""; width: 0; height: 0; border-left: 6px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+.cue:hover, .cue.on { background: var(--lime); }
+.context-tag { font: 400 .72rem/1 var(--f-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; }
+h2.title { margin: 0; font: 700 clamp(1.5rem, 2.6vw, 2.1rem)/1.1 var(--f-display); letter-spacing: -.02em; text-wrap: balance; }
+h3 { margin: 30px 0 6px; font: 700 1.1rem/1.2 var(--f-display); letter-spacing: -.01em; }
+p { margin: 0 0 1.05em; }
+.who {
+  display: inline-block; margin: 6px 0 8px; font: 600 .72rem/1 var(--f-mono); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--lime);
+}
+blockquote { margin: 0 0 1.1em; padding: 2px 0 2px 18px; border-left: 2px solid var(--violet); font-style: italic; color: var(--ink); }
+figure { margin: 22px 0 26px; }
+figure img { display: block; width: 100%; height: auto; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); background: #0d0913; }
+figure.half { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+figure.small img { max-width: 420px; }
+figcaption { margin-top: 8px; font: 400 .78rem/1.4 var(--f-mono); color: var(--muted); }
+.lyrics {
+  margin: 8px 0 22px; padding: 16px 18px; border-radius: 8px; background: var(--panel);
+  font: 400 .95rem/1.75 var(--f-mono); box-shadow: inset 0 0 0 1px var(--line); overflow-x: auto;
+}
+.lyrics div { white-space: nowrap; }
+.lyrics .s { color: var(--violet); }
+.lyrics .s.char { color: var(--pink); }
+.lyrics .s.cj { color: var(--muted); }
+code { font: 400 .88em var(--f-mono); color: var(--lime); background: rgba(205, 242, 106, .08); padding: 1px 5px; border-radius: 4px; }
+ol.steps { padding-left: 1.3em; margin: 0 0 1.1em; }
+ol.steps li { margin-bottom: .3em; }
+.def { margin: 0 0 1.1em; }
+.def dt { font: 700 1.05rem/1.2 var(--f-display); margin-top: 14px; }
+.def dd { margin: 4px 0 0; }
+.sub-anchor { scroll-margin-top: 24px; }
+.footer { margin-top: 70px; font: 400 .8rem/1.6 var(--f-mono); color: var(--muted); }
+
+/* ---------------- narrow ---------------- */
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage {
+    position: sticky; top: env(safe-area-inset-top, 0px); height: auto; z-index: 5; gap: 10px;
+    padding-block: 10px 8px; padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px));
+    border-right: 0; border-bottom: 1px solid var(--line); background: var(--bg);
+  }
+  .brand, .chapters { display: none; }
+  .now { grid-template-columns: 56px minmax(0, 1fr); gap: 10px; }
+  #liss { width: 56px; height: 56px; }
+  .now h2 { font-size: .95rem; margin: 3px 0 1px; }
+  .now .ratio { display: none; }
+  .timeline { height: 40px; }
+  .doc { padding-block: 32px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  section::before { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { section::before { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="stage" aria-label="Video and song timeline">
+    <div class="brand">
+      <span class="band">DADABOTS · Sloopy Doopid</span>
+      <span class="docname">AISC26 · process doc</span>
+    </div>
+    <div class="player"><div id="yt"></div>
+      <div class="fallback" id="fallback" hidden>The video player couldn't load here.<br>Open this page from a web server (not a file://), or <a href="https://youtu.be/vSdVXgV3RCQ" target="_blank" rel="noopener">watch on YouTube</a>.</div>
+    </div>
+    <div class="now">
+      <canvas id="liss" width="224" height="224" aria-hidden="true"></canvas>
+      <div class="meta">
+        <div class="clock" id="clock">0:00 <span>/ 4:20 · 180 BPM</span></div>
+        <h2 id="nowTitle">Bounce that ass in a lissajous</h2>
+        <div class="ratio" id="nowRatio">x = sin(3t + π/2) · y = sin(2t)</div>
+      </div>
+    </div>
+    <div class="timeline" id="timeline" role="slider" aria-label="Song position" aria-valuemin="0" aria-valuemax="240" aria-valuenow="0" tabindex="0">
+      <div class="track"></div><div class="fill" id="fill"></div>
+      <div id="marks"></div>
+      <div class="head" id="head"></div>
+      <div class="tip" id="tip" hidden></div>
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <div class="controls">
+      <label class="toggle"><input type="checkbox" id="follow" checked> page follows video</label>
+      <label class="toggle"><input type="checkbox" id="scrollsync" checked> scrolling moves video</label>
+    </div>
+    <ol class="chapters" id="chapters" aria-label="Moments in the video"></ol>
+  </aside>
+
+  <main class="doc" id="doc">
+    <header class="hero">
+      <div class="eyebrow">AISC26 · Extended process document</div>
+      <h1>Sloopy Doopid <em>(bounce that ass in a lissajous)</em></h1>
+      <p class="sub">How a 2am algorave afterparty became a four-minute, AI-assisted, live-coded music video.</p>
+      <div class="credits"><b>DADABOTS</b> · CJ Carr, Zack Zukowski · with Char Stiles, Lil Data, Noodle Doodle, Wobbly, RTyler, Asa</div>
+    </header>
+
+    <section id="music-model" data-ratio="1,1,0.5">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Background</span></div>
+      <h2 class="title">The Music Model</h2></div>
+      <p>We built the model we used. It was trained on licensed music from Audiosparx and Freesound and we released it open source for everyone to use for free. It's called Stable Audio 3 (155k downloads on Hugging Face). It's a diffusion transformer (with a transformer decoder) that is adversarially post-trained.</p>
+      <figure><img src="img/image14.jpg" width="1400" height="477" alt="Hugging Face model page for Stable Audio 3" loading="lazy"></figure>
+      <p>Our NVIDIA GPU used to overheat and crash at raves, so I spent a year optimizing it to run on our MacBooks. It can even train LoRAs on the MacBook. No NVIDIA GPU needed. No wifi needed. You can find the optimized kernels for various hardware here: <a href="https://github.com/Stability-AI/stable-audio-3/tree/main/optimized" target="_blank" rel="noopener">github.com/Stability-AI/stable-audio-3/tree/main/optimized</a></p>
+      <p>Since the model can make a full song in as fast as 300ms, it means we can use it live on stage in a practice we named prompt jockeying.</p>
+    </section>
+
+    <section id="prompt-jockeying" data-ratio="2,1,0">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Background</span></div>
+      <h2 class="title">Prompt Jockeying</h2></div>
+      <p>SLOOPY DOOPID began as a live prompt jockeying set. What is that? It's DJing, but the songs don't exist yet: they're generated live on stage, then mixed. We came up with the concept with our friends and filmed a documentary. We love it because there's more improvisation possible than DJing and therefore more challenging.</p>
+      <figure><img src="img/image10.jpg" width="1400" height="411" alt="YouTube listing for the documentary Prompt Jockeys (2024)" loading="lazy"></figure>
+      <p>Here's an example custom live setup. Above, we do djay mixing; below, we prompt songs into existence. A single generation can chain multiple models together through pipelines of inpainting and audio-prompting, which is necessary to make subgenres like twinkle trap.</p>
+      <figure><img src="img/image25.jpg" width="1400" height="822" alt="A custom live setup: two decks of djay mixing above, song prompting controls below" loading="lazy"></figure>
+    </section>
+
+    <section id="algorave" data-cues="3,60" data-ratio="1,1,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">The Algorave</h2></div>
+      <p>Late one night, RTyler assembled a very spontaneous algorave afterparty and told Zack and Char to go on stage together 5 minutes before set time. In a silly mood, they whipped out their laptops. Zack improvised a 1-hour prompt jockey set of "eggpunk dnb" with a Stability AI research model, Char VJ'd with her MIT Media Lab research tool, and they both acted ridiculous for the camera. It was a moment so illustrious, a supergroup was formed to remix it.</p>
+      <figure><img src="img/image30.jpg" width="1400" height="782" alt="Zack and Char performing on stage at the algorave" loading="lazy"></figure>
+      <span class="who" data-at="60">Zack</span>
+      <p>On a Wednesday afternoon, Wobbly texted me, "You making any of the Algorithmic Art Assembly shows? I'm catching all of them". Music tech titans the likes of Keith Fullerton Whitman, Char Stiles, rtyler, c_robo_, Claire L Evans, Nathan Ho, and Google Magenta gave talks, workshops and performances. I definitely wasn't going to miss it! The onslaught of algorithmic thought that week was both invigorating and increasingly hard to endure. The esoteric formulations consumed my thoughts and dreams. By the end, my brain was Bob's confetti. I felt slightly loopy, stupid, and dumbfounded after it all. Realizing it's not just my musicianship, but now my coding skills that have atrophied after so many years of using AI.</p>
+      <p>Then, rtyler asked if I would play the afters. While overwhelmed with the immense creative force in math and process I had ingested the three days prior, I committed to the gig, knowing I had just the right response for MonumentSF. Flying straight for the sun, I prompt engineered a 180 bpm readymade dnb set. With no visual aspect, I fell well below rtyler's expectations for an impromptu Dadabots set with the audience in the state they were. Like a hero, he recruited Char Stiles just 5 minutes before showtime as my VJ. The songs never existed, the visuals were cast from code, we did it in hopes the party's weary 2am asses might start to oscillate up off the lounge sofas.</p>
+    </section>
+
+    <section id="fantasy-ide" data-cues="50,104,212" data-ratio="5,4,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Fantasy IDE</h2></div>
+      <figure><img src="img/image22.jpg" width="1400" height="770" alt="Fantasy IDE windows reading Bounce that ass in a lissajous" loading="lazy"></figure>
+      <span class="who">Char</span>
+      <p>The Fantasy IDE is a web-based, JavaScript-driven live coding environment built as a windowing system: small windows can be spawned onto the screen, each containing a different kind of content (GLSL shaders, WebGPU code, plain JavaScript, HDMI input, or other device input like a webcam feed), and any window can be made full-screen to write and edit its code live. The core architecture is a bidirectional tile system: a visual, node-like graph representation of the code's inputs, outputs, and connections that can be edited either as tiles or as raw text, with changes syncing both ways so that the graphical view never sacrifices the nuance of the underlying textual program.</p>
+      <p>Because the tiles are just another representation of the code, the code itself can reach back and manipulate the tiles' own properties (position, movement, behavior), giving the coder direct programmatic control over the interface's visual elements rather than treating the window layout as a fixed shell around the code.</p>
+      <p data-at="50">Here (<button class="cue" data-t="50">0:50</button>) Char uses her IDE to generate the lyrics out of many smaller lissajous curves.</p>
+      <figure><img src="img/image6.jpg" width="1400" height="770" alt="The lyrics drawn out of many small lissajous curves" loading="lazy"></figure>
+      <p data-at="104">Here (<button class="cue" data-t="104">1:44</button>) we put the windows themselves into a lissajous animation!</p>
+      <figure><img src="img/image28.jpg" width="1400" height="773" alt="IDE windows arranged along a lissajous path" loading="lazy"></figure>
+    </section>
+
+    <section id="remix" data-ratio="3,2,0">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Process</span></div><h2 class="title">The Remix</h2></div>
+      <figure><img src="img/image24.jpg" width="1400" height="500" alt="The Ableton session used to remix and edit the video" loading="lazy"></figure>
+      <span class="who">CJ</span>
+      <p>I wasn't there, but I wanted to be a part of it, so I spent the next 2 months remixing the raw recording. I curated the best parts of that 45 minutes into the perfect 10-minute mix. I put their best dance moments on loop. There were no lyrics yet. It stood on its own as a completed piece, a good extended version to dance to live: <code>eggpunk-dnb-180.mp3</code></p>
+      <p>But we weren't done. We had the ambition to crunch it down even further to 4 minutes and ice it with frosting of all our friends' vocals. After I listen to my music 100 times, it's tough to delete parts, because it becomes a part of me. To make it work, I had to embrace full ADHD. Nothing was repeated longer than it had to be.</p>
+    </section>
+
+    <section id="vocals" data-ratio="4,3,0.5">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Process</span></div><h2 class="title">Vocals</h2></div>
+      <blockquote>"Music's just about hanging out" – Daouda</blockquote>
+      <p>To record vocals, I really didn't want us to do it remotely and be even slightly disconnected from the vibe of us hanging out. It was important, so we traveled to different cities. To capture the spontaneity of our random jokes, vocal lyrics were NOT recorded in a studio into a microphone, but into our phones, edited later with AI speech enhancement (using Adobe Podcast).</p>
+    </section>
+
+    <section id="wobbly" data-cues="103" data-ratio="3,4,0.25">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Wobbly</h2></div>
+      <p>Wobbly is a member of the legendary mischief band Negativland, known since the 80s and 90s for culture jamming, pranks, and satirization of mass media consumer culture. They do this by sampling commercial jingles, inadvertent on-air remarks, radio recordings, and internet videos to make absurd audio collages. They're the best at it.</p>
+      <p>Negativland's use of sampling-as-the-lead-instrument was an inspiration for my <a href="https://cortexelation.bandcamp.com/album/while-true" target="_blank" rel="noopener">early music production in college</a>, so it was an incredible opportunity for us to work together. Around 2020 Wobbly took interest in neural-synthesis-as-sampler after falling in love with <a href="https://www.youtube.com/watch?v=qGjsGTvwL78" target="_blank" rel="noopener">NO SOUL</a>, our 24/7 generative soul funk music livestream, which ran non-stop for years. Wobbly recorded many hours of it, in an effort to archive this otherwise discarded ephemeral output.</p>
+      <span class="who">CJ</span>
+      <p>Zack and Carrie had been building a new music studio in their home in Sacramento for months, and my visit with Wobbly was their impetus to finish. Our session was DAY 1 of this new studio.</p>
+      <p>Before arriving, Wobbly sent us an awesome demo of his latest EP which was full of speech synthesis sound experiments, including one that modified Suno CEO Mikey Shulman's ill-advised quote "It's not really enjoyable to make music". Because the purpose of text2speech is for reading things aloud, not for singing or music, we loved the idea of it being the main voice of a song. Just seems so incorrect. It'd be funny to use that and say "Wobbly is our lead singer".</p>
+      <p>Together we listened to the full 10-minute version of Sloopy Doopid and asked him "what would you add to this?". He said "I have just the thing".</p>
+      <p>Wobbly sent us two speech synthesis samples:</p>
+      <ol class="steps">
+        <li>Different text2speech voices saying matter-of-factly "at this time, I invite you to physically assault the person standing next to you".</li>
+        <li>Two audiobook voices simultaneously saying the same string of indecipherable nonsense which ends in (what I think sounds like) "…for the frailty of the mind would have seemed to him quite wrong."</li>
+      </ol>
+      <p>#1 was too powerful and probably deserved its own song with a mosh pit drop. (We'll save that one for later.) #2 was a great fit and occupied another quadrant of the sloopy doopid paradox: teetering on the precipice of scramblebrain while having the confident tone of high-style literary intellect.</p>
+    </section>
+
+    <section id="zack-vocals" data-cues="114" data-ratio="2,3,0">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Zack's Vocals</h2></div>
+      <div class="lyrics">
+        <div><span class="s">&lt;Zack&gt;</span> Punch your punch your punch your</div>
+        <div><span class="s">&lt;Zack&gt;</span> Not your</div>
+        <div><span class="s">&lt;Zack&gt;</span> Not your face</div>
+        <div><span class="s">&lt;Zack&gt;</span> Punch your f-</div>
+        <div><span class="s">&lt;Zack&gt;</span> Punch your f-</div>
+        <div><span class="s">&lt;Zack&gt;</span> Punch your f-</div>
+        <div><span class="s">&lt;Zack&gt;</span> Face</div>
+        <div><span class="s">&lt;Zack&gt;</span> Not your</div>
+        <div><span class="s">&lt;Zack&gt;</span> Punch your punch your punch your</div>
+      </div>
+      <div class="lyrics">
+        <div><span class="s cj">CJ:</span> lmao, do you have anything to say about your lyrics</div>
+        <div><span class="s">Zack:</span> It's the lyrical equivalent of button mashing</div>
+        <div><span class="s cj">CJ:</span> brilliant</div>
+      </div>
+      <figure><img src="img/image32.jpg" width="1400" height="380" alt="Zack and Char mugging for the camera" loading="lazy"></figure>
+      <p>A fan at Sonar called us "the beavis and butthead of ai music" and I can't imagine why.</p>
+      <p>Despite Zack building a whole home music studio for this song, I deliberately avoided going in there to get his vocals. To open ourselves to the genius of the muses, you can't force it. To capture the spontaneity of our random jokes, I had my phone ready in any situation to record Zack's random utterances. These lyrics emerged at 2am on the living room couch, deep in the LOLs of knuckleheaded buffoonery, with a level of meaninglessness that catapulted me onto the ground writhing in a fit of laughter. It was a kind of thing you can't get from forcing it in a vocal booth.</p>
+      <div class="lyrics">
+        <div><span class="s">&lt;Zack&gt;</span> What the -sh, what the sh-, what the sh-</div>
+        <div><span class="s">&lt;Zack&gt;</span> Shake dat a-, shake dat a-, shake dat a-</div>
+      </div>
+      <p>Zack's vocals are inspired by Chicago footwork (like Traxman's "Shake Dat Azz"), Oakland hyphy, and New Orleans bounce (like Big Freedia), all similar in their use of repetitive, irreverent, lovably obnoxious vocals over high-energy fast beats.</p>
+      <p>That same Zack couch session gave us the words "sloopy" and "doopid".</p>
+    </section>
+
+    <section id="doopid-sloopy" data-cues="68,91" data-ratio="1,2,0">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Doopid &amp; Sloopy</h2></div>
+      <figure><img src="img/image20.jpg" width="1400" height="276" alt="doopid() typed in the live-coding editor" loading="lazy"></figure>
+      <p>Zack said these words are meaningless, but here's my formal meta-cognitive analysis:</p>
+      <dl class="def">
+        <dt data-at="68">Doopid</dt>
+        <dd>Stupider than stupid. You're saying "stupid" in a stupid way. It's slightly antagonistic. It's as if someone just called you "stupid", and you retaliated by making fun of how they said it, portraying them as unflatteringly moronic in an effort to establish them as the stupid one. Your rebuttal reflected the insult, it bounced off of you and stuck to them, increasing the magnitude of the word vector on the way out. Very meta.</dd>
+        <dt data-at="91">Sloopy</dt>
+        <dd>Sloppier than sloppy. It somehow carries the subliminal remnants of "stupid" that hearing the word "doopid" earlier subconsciously primed. That bias to hear "oo" after "s" rears its head a moment later, like a stowaway sneaking out under the unwatchful eye of a sleepy security guard. You begin to say "sloppy", but your mental conviction is so low that it comes out "sloopy". Again, very meta.</dd>
+      </dl>
+      <p>Each word is very itself. Hofstadter might classify them as autological: words that describe themselves or turn back on themselves.</p>
+    </section>
+
+    <section id="twerking" data-cues="38,54,215" data-inline-cues="209" data-ratio="3,2,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Lissajous Twerking</h2></div>
+      <span class="who">CJ</span>
+      <p>I came to Brooklyn for a few days to hang out at Char's to work on the song. Char runs a hackerspace called Hex House.</p>
+      <p>One evening, while we were bored at a Hex House math club meetup on dynamical systems, RTyler texted us his idea for "lissajous twerking", whereupon I immediately vibecoded with Astra 6 a twerking simulator, stood up and mischievously subverted the discussion toward the application of Arnold tongues to booty shaking.</p>
+      <figure class="small"><img src="img/image38.jpg" width="1228" height="896" alt="Tweet: applying Arnold tongues to lissajous twerking at the math club" loading="lazy"></figure>
+      <p>Lissajous curves are the family of shapes made by the harmonic motion of perpendicular sinusoidal vibrations.</p>
+      <figure><img src="img/image8.jpg" width="542" height="234" alt="A grid of lissajous curves" loading="lazy"></figure>
+      <p data-at="54">The lissajous twerk lab can be found here: <a href="https://lissajous-booty-lab.emperorcj.chatgpt.site/" target="_blank" rel="noopener">lissajous-booty-lab.emperorcj.chatgpt.site</a></p>
+      <figure><img src="img/image3.jpg" width="1400" height="781" alt="The lissajous twerk lab" loading="lazy"></figure>
+      <p>Has no one tried to twerk like this before? Hahaha. I guess you had to be a ratchet math geek. This joke became the whole song. We knew the hook of the song would need to be "Bounce that ass in a lissajous". We were compelled.</p>
+      <p data-at="209" data-label="Lissajous Twerking (jiggle)">Everyone we showed had a funny feature idea, and we added them all in: lorenz curves, group dancers, the flower of life, jiggle ratios, a cube, booty shorts. We featured these all in the second reprise of the hook (<button class="cue" data-t="209">3:29</button>).</p>
+      <p data-at="215">While I was working on the twerk lab, my friend Asa posted an Instagram story declaring booty shorts should say spiritual quotes. I asked her what ours should say; she said "What would water do?". I knew immediately this was about Taoism because I've been way into water symbolism lately. This would also look funny at full jiggle.</p>
+      <figure><img src="img/image37.jpg" width="1400" height="470" alt="Speed and jiggle sliders, jiggle at 200%" loading="lazy"></figure>
+      <figure class="half">
+        <img src="img/image9.jpg" width="1400" height="857" alt="Lorenz curve twerking" loading="lazy">
+        <img src="img/image29.jpg" width="1060" height="942" alt="Cube twerking" loading="lazy">
+      </figure>
+      <figure class="small"><img src="img/image11.jpg" width="1400" height="1156" alt="Flower of life twerking" loading="lazy"></figure>
+    </section>
+
+    <section id="char-vocals" data-cues="0,149" data-ratio="3,1,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Char's Vocals</h2></div>
+      <div class="lyrics">
+        <div><span class="s char">&lt;Char&gt;</span> Bounce that ass</div>
+        <div><span class="s char">&lt;Char&gt;</span> Bounce that ass in a lissajous</div>
+      </div>
+      <p>It was perfect, it was beautiful. Char's "B" in bounce was so bouncy, we used the bounciest B. It came out of us just being silly on the couch recording into the phone.</p>
+      <figure data-at="149"><img src="img/image39.jpg" width="1400" height="304" alt="A Fantasy IDE window reading Computer screams" loading="lazy"></figure>
+      <div class="lyrics">
+        <div><span class="s char">&lt;Char&gt;</span> Scream at your computer</div>
+        <div><span class="s char">&lt;Char&gt;</span> Scream..</div>
+        <div><span class="s char">&lt;Char&gt;</span> Scream at your computer</div>
+        <div><span class="s char">&lt;Char&gt;</span> Scream.. scream..</div>
+      </div>
+      <p>During a heavy section of the live set, Zack started generating sounds halfway between synths and screams. (The 10-minute version of Sloopy Doopid ends with a hilarious final climax of Zack's face mouthing these screams.) Char, who was livecode VJing, saucily wrote "computer screams" in a bouncing window, and it became a recurring theme.</p>
+      <p>At Char's flat in Brooklyn, after a night of us dancing to Exjaynine uptempo breakcore and learning to bunny hop on bikes in the street, we did a living room couch phone lyric session. She grabbed the phone and began a harrowingly cult chant:</p>
+      <div class="lyrics">
+        <div><span class="s char">Char:</span> "Scream! Scream at your computer! Scream at your computer . . . "</div>
+        <div><span class="s char">Char:</span> I want to scream this but I don't wanna be loud b/c of the neighbors</div>
+        <div><span class="s cj">CJ:</span> whisper scream, it's noisier</div>
+        <div><span class="s char">Char:</span> +whispering loudly+ "screaaaaaam at your computerrrr"</div>
+        <div><span class="s cj">CJ:</span> OH PERFECT</div>
+      </div>
+      <p>We pitched her down, added a little bit of reverb, and Char was instantly transformed into a gargoyle-maxxing black metal singer. Perfect transition into Lil Data, as I tease parts of his livecode face without showing you.</p>
+      <figure><img src="img/image35.jpg" width="1400" height="556" alt="Fragments of live code curling across a black screen" loading="lazy"></figure>
+      <figure><img src="img/image23.jpg" width="1400" height="776" alt="Zack and Char with code overlaid" loading="lazy"></figure>
+    </section>
+
+    <section id="lil-data" data-cues="159" data-ratio="5,3,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Lil Data's Livecode Solo</h2></div>
+      <p>Lil Data does a "livecode solo" in a single take, where mid-way he becomes the code, highlighting human livecode performance as virtuosity.</p>
+      <span class="who">CJ</span>
+      <p>As a metal songwriter, my instincts here were "ok here is where the guitar solo should go" but this is DADABOTS, we needed something unusual and masterful, so we asked a master.</p>
+      <span class="who">Lil Data</span>
+      <p>Dadabots requested a "Lil Data live code solo" for their track, something I was quick to agree to. I have played with the idea of the live code solos before, for example on my Charli XCX Vroom Vroom edit, and on the track Hickory from Folder Dot Zip. I find it similar to how the term "algorave" itself prevents algorave from being taken too seriously: the QWERTY keyboard's lack of musical ergonomy combined with the inescapable cringe of soloing is ideal for making a handsome fool of oneself!</p>
+      <p>There are three technical aspects to this live code solo that I think are fun to point out. First, I am live coding Dadabots' video itself, via an app that uses a custom video codec to make individual video frames randomly and instantly accessible (a trick known to VJs but not explored in live coding AFAIK). Second, <code>setEvalMode("keystroke")</code> tells my custom Strudel fork to evaluate the code after every keystroke (instead of via a specific keybind like Cmd+Enter), inspired by an idea that hit me around 2017 that any sufficiently rapid live coding would be indistinguishable from instrumental performance (hat tip to Arthur C. Clarke). Third, I demonstrate "bodycode" using my Strudel Mediapipe package to both map the code onto my body and also control pattern parameters with my face and hands. Please enjoy this deconstructive post-coding mess.</p>
+      <span class="who">CJ</span>
+      <p>btw he really does this in a single take. He sent us the file <code>take26.mp4</code>. It was amazing. It made Char scream.</p>
+      <figure class="small"><img src="img/image7.jpg" width="1262" height="1486" alt="Text message thread reacting to the solo video" loading="lazy"></figure>
+      <p>The surprise emergence of a LIVECODE FACE felt like encountering the final boss.</p>
+      <figure class="half">
+        <img src="img/image16.jpg" width="1280" height="720" alt="A low-poly mask face" loading="lazy">
+        <img src="img/image13.jpg" width="1400" height="569" alt="The livecode face and hands, drawn in code" loading="lazy">
+      </figure>
+      <span class="who">CJ</span>
+      <p>The music needed to carry the suspense and frisson of a difficult live performance, with proper rhythmic and melodic context. Yin to its yang. I composed a "boss" melody using fast arpeggiated chromatic runs. Using a home-away-home-away pattern with the repetition of the breakbeat, it tethers you to the song by a mere shoestring, keeps the tension high, floats you into outer space, but still brings you back. Three sub-sections, each increasing in intensity:</p>
+      <ol class="steps">
+        <li>Char and Zack's video gets randomly glitched up.</li>
+        <li>Now they're getting cut up in sequences of gradually higher powers of two.</li>
+        <li>Lil Data becomes the Face and his body gestures spectrally warp the audio.</li>
+      </ol>
+      <p>As editor I wanted to REALLY bring this section to life, emphasizing the actions on camera, guiding the viewer's attention toward masterful actions which are so unusual they might miss it entirely. I was puzzled, and solved this by simply zooming in on the parts of code as they were getting edited. As a beginner video editor, I was delighted to discover this fundamental trick.</p>
+      <p>I tease corners of the Face earlier, but wait until the final moment to show you the full look. And when he first shows up, I make sure it's the only thing on screen, so your brain registers. Finally he sucks in the entire video, and we transition to more video fx.</p>
+      <figure><img src="img/image1.jpg" width="1400" height="619" alt="The livecode face sucking the video into a vortex" loading="lazy"></figure>
+    </section>
+
+    <section id="noodle" data-ratio="2,1,0.25">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Process</span></div><h2 class="title">Noodle Doodle</h2></div>
+      <span class="who">CJ</span>
+      <p>I had listening sessions with Noodle. She's great at feeling when there's something off with small moments, or if something is getting annoying, or when the momentum stumbles. I can sense as I observe her listening, and this helped me focus on what to fix or delete.</p>
+      <p>After listening to the end, I asked "what does the song need?" and she said "between sloopy and doopid it should say 'hyperintelligence'". LMAO, we both laughed, so we had to do it.</p>
+      <p>She's a great voice actor. She performed several versions of this word into the mic. We went with the one that sounded most like Steve Jobs giving a keynote about the latest product Hyperintelligence™.</p>
+    </section>
+
+    <section id="hyperintelligence" data-cues="79" data-ratio="7,5,0.5">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">Hyperintelligence</h2></div>
+      <figure><img src="img/image12.jpg" width="1400" height="838" alt="The Hyperintelligence chord visualizer" loading="lazy"></figure>
+      <p>I felt "Hyperintelligence" should be some crazy IDM section of extreme music theory wankery with rapid extended chord changes using advanced jazz harmony, Coltrane theory, neo-Riemannian theory, negative harmony, etc. And that I should have AI write this part, like an "LLM solo" as a counterpoint to Lil Data's livecode solo, to represent the current extreme of machine virtuosity.</p>
+      <p>Several weeks later Claude Opus upgraded and finally seemed like it had the ability to 1-shot a part like this. The prompt was "With javascript web audio, make an extremely overstimulating short section of increasingly intense music at 180bpm that uses the most obscure harmony theories". The tweet of this section did well, 44k views.</p>
+      <figure class="small"><img src="img/image18.jpg" width="1198" height="966" alt="DADABOTS tweet about the Opus-written section" loading="lazy"></figure>
+    </section>
+
+    <section id="llms" data-ratio="4,5,0.5">
+      <div class="sec-head"><div class="eyebrow-row"><span class="context-tag">Process</span></div><h2 class="title">LLMs &amp; Video &amp; 3D</h2></div>
+      <p>From April to September 2026, as we worked on Sloopy Doopid, the frontier LLMs leaped in capabilities, especially with video and 3D rendering with JavaScript, and the music video captured it like a fossil.</p>
+      <p>The entire music video was edited in the same Ableton session as the music. No After Effects, no Blender, no Resolve. All 3D effects were vibecoded using Claude Code with Opus 5.5, Codex with Astra 6, and open models, including animating 4D splats into lissajous curves and infinite zooms.</p>
+      <p>Tbh editing in Ableton was so much nicer because the interface is already beat-synced and I could edit the music at the same time. This put the video and music in dialogue with each other, co-created. Ableton's video editing features are extremely basic (the only actions are cut and paste) but it worked.</p>
+      <p>For each effect, I vibecoded 3D interactive webapps based on <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> (for example, the twerking simulator), which I could direct and screen capture. And to create surprising clips, I prompted "film 10 minutes of random settings and camera angles", which I curated and cut from.</p>
+    </section>
+
+    <section id="3d-world" data-cues="75" data-ratio="3,4,0">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">3D World</h2></div>
+      <p>Using pose tracking, on max effort, Claude was able to one-shot a three.js version of the entire music video. Zack and Char look so funny as 3D shapes. Zack requested his shirt have an egg.</p>
+      <figure><img src="img/image31.jpg" width="1400" height="771" alt="Pose-tracking skeletons over Zack and Char" loading="lazy"></figure>
+      <figure><img src="img/image2.jpg" width="1400" height="690" alt="The three.js rebuild of the stage with skeleton performers" loading="lazy"></figure>
+    </section>
+
+    <section id="the-lissajous" data-cues="25" data-ratio="3,4,0.25">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">"The Lissajous"</h2></div>
+      <p>This section is a good example of how we created the music and video together in dialogue.</p>
+      <p>Both Lil Data and Noodle Doodle said the track needed more breaks and breathing room, especially before the hook. Not only did it need a sound break, it needed a storytelling break. This led me to imagine an old 1940s cartoon theme card introducing the concept of the Lissajous. Stable Audio, which is trained on film/TV music, was great for generating this brief theme. Minimax H3 generated several videos; however, it could not get the lissajous correct. Opus fixed all of them, animating them all with the same exact phase. This let me quickly cut between all of them, which kept the animation consistent, while changing the background.</p>
+      <figure><img src="img/image33.jpg" width="1400" height="839" alt="The Lissajous cartoon title card" loading="lazy"></figure>
+    </section>
+
+    <section id="splats" data-cues="118" data-inline-cues="197" data-ratio="5,4,0.25">
+      <div class="sec-head"><div class="eyebrow-row"></div><h2 class="title">4D Lissajous Splats</h2></div>
+      <p>Splats are another technique to 3D-ify a video. Char and I talked about how our friend Kevin Kwok made a <a href="https://antimatter15.com/splat/" target="_blank" rel="noopener">WebGL Splat viewer</a> and we had the idea to use it. We wanted to see if we could turn the Zack-Char video into a 4D animated splat.</p>
+      <p>We tried training two open source machine learning models to achieve this:</p>
+      <dl class="def">
+        <dt>Gaussians-to-Life</dt><dd>G2L hallucinates the missing parts of the scene based on a prompt.</dd>
+        <dt>Shape of Motion</dt><dd>SoM doesn't hallucinate, it just leaves the rest of the scene missing.</dd>
+      </dl>
+      <p>I liked Shape of Motion because it just makes a glitchy twisted version of the original content.</p>
+      <figure><img src="img/image21.jpg" width="1400" height="1194" alt="A Shape of Motion splat of the performance" loading="lazy"></figure>
+      <p>We made a dozen different splat animation effects. Here we animate the typing of the livecode function that executes the splat effect.</p>
+      <figure><img src="img/image4.jpg" width="1400" height="775" alt="Splat effect with live code" loading="lazy"></figure>
+      <figure class="half">
+        <img src="img/image34.jpg" width="1400" height="766" alt="Splat effect" loading="lazy">
+        <img src="img/image17.jpg" width="1400" height="785" alt="Splat effect" loading="lazy">
+      </figure>
+      <h3>Lissajous Splats</h3>
+      <p>To increase the drama of these effects, halfway through the video we turn the splats into lissajous animations!</p>
+      <figure class="half">
+        <img src="img/image26.jpg" width="1400" height="775" alt="Splat pieces flowing along a lissajous curve" loading="lazy">
+        <img src="img/image5.jpg" width="1400" height="783" alt="Splat pieces flowing along a lissajous curve" loading="lazy">
+      </figure>
+      <h3 class="sub-anchor" id="infinite-zoom" data-at="197" data-label="Infinite Splat Zoom">Infinite Splat Zoom <button class="cue" data-t="197">3:17</button></h3>
+      <p>But my favorite effect we came up with are these Infinite Splat Zooms.</p>
+      <p>Inside the splat scene of Char and Zack, Char's visuals include a self-referential pop window, and so we can recursively zoom out of the scene through the window. The first zoom does a slower zig-zag to portray that it is actually a 3D scene. However if the zig-zag goes too fast it's nauseating. The second zoom pulls out rapidly from the center without zig-zag. The two act as a natural climactic progression speedup, and punctuate Lil Data's solo perfectly, returning to our hook.</p>
+      <figure class="half">
+        <img src="img/image15.jpg" width="1400" height="772" alt="Infinite splat zoom frame" loading="lazy">
+        <img src="img/image19.jpg" width="1400" height="778" alt="Infinite splat zoom frame" loading="lazy">
+        <img src="img/image27.jpg" width="1400" height="753" alt="Infinite splat zoom frame" loading="lazy">
+        <img src="img/image36.jpg" width="1400" height="793" alt="Infinite splat zoom frame" loading="lazy">
+      </figure>
+    </section>
+
+    <p class="footer">DADABOTS · Sloopy Doopid (bounce that ass in a lissajous) · AISC26 · <a href="https://youtu.be/vSdVXgV3RCQ" target="_blank" rel="noopener">watch on YouTube</a></p>
+  </main>
+</div>
+
+<script>
+(() => {
+  const VIDEO = 'vSdVXgV3RCQ';
+  let DUR = 260;                                      // the YouTube cut is 4:20; replaced by the player's own duration
+  const fmt = s => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+  // ---- cues: every timestamp in the doc, chronological ----
+  const sections = [...document.querySelectorAll('section')];
+  const cues = [];
+  sections.forEach(sec => {
+    const ts = (sec.dataset.cues || '').split(',').filter(Boolean).map(Number);
+    const inl = (sec.dataset.inlineCues || '').split(',').filter(Boolean).map(Number);
+    const row = sec.querySelector('.eyebrow-row');
+    [...ts, ...inl].forEach(t => {
+      const labelled = sec.querySelector(`[data-at="${t}"][data-label]`);
+      const sub = labelled ? labelled.dataset.label : null;
+      // where in the text this moment is: an explicit passage, else the section itself (first timestamp only)
+      const at = sec.querySelector(`[data-at="${t}"]`);
+      const anchor = at || (t === ts[0] ? sec : null);
+      cues.push({ t, sec, label: sub || sec.querySelector('h2.title').textContent, anchor: anchor || sec, scrollAnchor: anchor });
+      if (ts.includes(t)) {                               // a play chip in the section header
+        const b = document.createElement('button'); b.className = 'cue'; b.dataset.t = t; b.textContent = fmt(t); row.appendChild(b);
+      }
+    });
+  });
+  cues.sort((a, b) => a.t - b.t);
+  const ratioOf = sec => (sec.dataset.ratio || '3,2,0.5').split(',').map(Number);
+
+  // chapter list + timeline marks
+  const chapters = document.getElementById('chapters'), marks = document.getElementById('marks');
+  cues.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<button type="button"><span class="t">${fmt(c.t)}</span><span>${c.label}</span></button>`;
+    li.querySelector('button').addEventListener('click', () => seek(c.t, true));
+    chapters.appendChild(li); c.li = li;
+    const m = document.createElement('button'); m.className = 'mark'; m.type = 'button'; m.setAttribute('aria-label', fmt(c.t) + ' ' + c.label);
+    m.addEventListener('click', e => { e.stopPropagation(); seek(c.t, true); });
+    m.addEventListener('mouseenter', () => showTip(c.t, c.label)); m.addEventListener('mouseleave', hideTip);
+    marks.appendChild(m); c.mark = m;
+  });
+  function layoutTimeline() {
+    cues.forEach(c => { c.mark.style.left = (c.t / DUR * 100) + '%'; });
+    const ticks = document.getElementById('ticks'); ticks.innerHTML = '';
+    for (let t = 0; t <= DUR; t += 60) {
+      const sp = document.createElement('span'); sp.textContent = fmt(t);
+      sp.style.cssText = `position:absolute;left:${t / DUR * 100}%;transform:translateX(${t === 0 ? '0' : '-50%'})`;
+      ticks.appendChild(sp);
+    }
+    const end = document.createElement('span'); end.textContent = fmt(DUR);
+    end.style.cssText = 'position:absolute;right:0'; if (DUR % 60 > 20) ticks.appendChild(end);
+    tl.setAttribute('aria-valuemax', Math.round(DUR));
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.cue'); if (b) { seek(+b.dataset.t, true); }
+  });
+
+  // ---- YouTube player (IFrame API) ----
+  let player = null, ready = false;
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player('yt', {
+      videoId: VIDEO, playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+      events: { onReady: () => { ready = true; const d = player.getDuration(); if (d > 30) { DUR = d; layoutTimeline(); tick(cur, false); } }, onError: () => { document.getElementById('fallback').hidden = false; } }
+    });
+  };
+  const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api';
+  s.onerror = () => { document.getElementById('fallback').hidden = false; };
+  document.head.appendChild(s);
+  if (location.protocol === 'file:') document.getElementById('fallback').hidden = false;
+
+  let pending = null;                                  // a seek YouTube hasn't reported back yet
+  function seek(t, play, fromScroll) {
+    if (ready && player) { player.seekTo(t, true); if (play) player.playVideo(); pending = { t, until: performance.now() + 2500 }; }
+    else if (!fromScroll) window.open(`https://youtu.be/${VIDEO}?t=${Math.floor(t)}`, '_blank', 'noopener');
+    if (!fromScroll) lastUserScroll = 0;
+    tick(t, !fromScroll, fromScroll);
+  }
+
+  // ---- timeline scrubbing ----
+  const tl = document.getElementById('timeline'), tip = document.getElementById('tip');
+  const posToT = x => { const r = tl.getBoundingClientRect(); return Math.min(DUR, Math.max(0, (x - r.left) / r.width * DUR)); };
+  function showTip(t, label) { tip.hidden = false; tip.style.left = (t / DUR * 100) + '%'; tip.textContent = fmt(t) + (label ? '  ' + label : ''); }
+  function hideTip() { tip.hidden = true; }
+  let dragging = false;
+  tl.addEventListener('pointerdown', e => { if (e.target.classList.contains('mark')) return; dragging = true; tl.setPointerCapture(e.pointerId); seek(posToT(e.clientX), false); });
+  tl.addEventListener('pointermove', e => { if (dragging) seek(posToT(e.clientX), false); else if (!e.target.classList.contains('mark')) showTip(posToT(e.clientX)); });
+  tl.addEventListener('pointerup', () => { dragging = false; });
+  tl.addEventListener('pointerleave', hideTip);
+  tl.addEventListener('keydown', e => {
+    const t = ready ? player.getCurrentTime() : cur;
+    if (e.key === 'ArrowRight') { seek(Math.min(DUR, t + 5)); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { seek(Math.max(0, t - 5)); e.preventDefault(); }
+  });
+
+  // ---- follow: scroll the doc to the moment the video is in (pauses briefly when you scroll yourself) ----
+  const follow = document.getElementById('follow');
+  try { follow.checked = localStorage.getItem('sd-follow') !== '0'; } catch (e) {}
+  follow.addEventListener('change', () => { try { localStorage.setItem('sd-follow', follow.checked ? '1' : '0'); } catch (e) {} });
+  let lastUserScroll = 0, autoScrolling = false, autoTimer = 0;
+  window.addEventListener('scrollend', () => { if (autoScrolling) setTimeout(() => { autoScrolling = false; }, 120); });
+  ['wheel', 'touchmove', 'keydown'].forEach(ev => window.addEventListener(ev, e => {
+    if (ev === 'keydown' && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(e.key)) return;
+    if (!autoScrolling) lastUserScroll = performance.now();
+  }, { passive: true }));
+
+  // ---- the stage readout ----
+  const clock = document.getElementById('clock'), nowTitle = document.getElementById('nowTitle'), nowRatio = document.getElementById('nowRatio');
+  const fill = document.getElementById('fill'), head = document.getElementById('head');
+  let cur = 0, active = null;
+  function activeCue(t) { let c = null; for (const q of cues) { if (q.t <= t + 0.05) c = q; else break; } return c || cues[0]; }
+  function tick(t, force, noScroll) {
+    cur = t;
+    clock.innerHTML = `${fmt(t)} <span>/ ${fmt(DUR)} · 180 BPM · beat ${Math.floor(t * 3) + 1}</span>`;
+    const p = (t / DUR * 100) + '%'; fill.style.width = p; head.style.left = p; tl.setAttribute('aria-valuenow', Math.round(t));
+    const c = activeCue(t);
+    if (c !== active || force) {
+      if (active) { active.li.classList.remove('on'); active.mark.classList.remove('on'); active.sec.classList.remove('on');
+        document.querySelectorAll('.cue.on').forEach(x => x.classList.remove('on')); }
+      active = c;
+      c.li.classList.add('on'); c.mark.classList.add('on'); c.sec.classList.add('on');
+      document.querySelectorAll(`.cue[data-t="${c.t}"]`).forEach(x => x.classList.add('on'));
+      nowTitle.textContent = c.label;
+      const [a, b, d] = ratioOf(c.sec);
+      nowRatio.textContent = `x = sin(${a}t${d ? ' + ' + (d === 0.5 ? 'π/2' : d === 0.25 ? 'π/4' : d + 'π') : ''}) · y = sin(${b}t)`;
+      setCurve(a, b, d);
+      const li = c.li, box = chapters;
+      if (li.offsetTop < box.scrollTop || li.offsetTop > box.scrollTop + box.clientHeight - 40) box.scrollTo({ top: Math.max(0, li.offsetTop - 60), behavior: 'smooth' });
+      if (!noScroll && follow.checked && (force || performance.now() - lastUserScroll > 6000)) {
+        autoScrolling = true;
+        const top = c.anchor.getBoundingClientRect().top + window.scrollY - (matchMedia('(max-width: 900px)').matches ? document.querySelector('.stage').offsetHeight + 8 : 16);
+        window.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        clearTimeout(autoTimer); autoTimer = setTimeout(() => { autoScrolling = false; }, 1600);
+      }
+    }
+  }
+  // ---- scrolling the doc moves the video to the passage you're reading ----
+  const scrollsync = document.getElementById('scrollsync');
+  try { scrollsync.checked = localStorage.getItem('sd-scrollsync') !== '0'; } catch (e) {}
+  scrollsync.addEventListener('change', () => { try { localStorage.setItem('sd-scrollsync', scrollsync.checked ? '1' : '0'); } catch (e) {} });
+  const readingLine = () => {
+    const narrow = matchMedia('(max-width: 900px)').matches;
+    const top = narrow ? document.querySelector('.stage').getBoundingClientRect().bottom : 0;
+    return top + (innerHeight - top) * 0.25;
+  };
+  function cueAtReadingPosition() {
+    const line = readingLine();
+    let best = null, bestY = -Infinity;
+    for (const c of cues) {
+      if (!c.scrollAnchor) continue;
+      const y = c.scrollAnchor.getBoundingClientRect().top;
+      if (y <= line && y > bestY) { best = c; bestY = y; }
+    }
+    // an untimed section in between keeps the video where it is
+    if (best) {
+      const between = sections.find(sc => !sc.dataset.cues && sc.getBoundingClientRect().top <= line && sc.getBoundingClientRect().top > bestY);
+      if (between) return null;
+    }
+    return best;
+  }
+  let scrollTimer = 0, lastScrollCue = null;
+  window.addEventListener('scroll', () => {
+    if (!scrollsync.checked || autoScrolling) return;      // only scrolling you do yourself (wheel, keys, scrollbar, touch)
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      const c = cueAtReadingPosition();
+      if (c && c !== lastScrollCue && c !== active) { lastScrollCue = c; seek(c.t, false, true); }
+      else if (c) lastScrollCue = c;
+    }, 180);
+  }, { passive: true });
+
+  setInterval(() => {
+    if (ready && player && player.getCurrentTime) {
+      const t = player.getCurrentTime() || 0;
+      if (pending) { if (Math.abs(t - pending.t) < 1.5 || performance.now() > pending.until) pending = null; else return; }
+      if (Math.abs(t - cur) > 0.01) tick(t);
+    }
+  }, 200);
+
+  // ---- beat-locked lissajous: the section's own ratio, the dot moves one cycle every 4 bars at 180 BPM ----
+  const cv = document.getElementById('liss'), g = cv.getContext('2d');
+  let A = 3, B = 2, D = 0.5, fromA = 3, fromB = 2, fromD = 0.5, morph = 1;
+  function setCurve(a, b, d) { fromA = A; fromB = B; fromD = D; A = a; B = b; D = d; morph = 0; }
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function draw() {
+    const W = cv.width, H = cv.height, R = W * 0.4;
+    g.clearRect(0, 0, W, H);
+    morph = Math.min(1, morph + 0.04);
+    const e = morph * morph * (3 - 2 * morph);
+    const a = fromA + (A - fromA) * e, b = fromB + (B - fromB) * e, d = (fromD + (D - fromD) * e) * Math.PI;
+    g.strokeStyle = 'rgba(180,140,255,.18)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(W / 2, 8); g.lineTo(W / 2, H - 8); g.moveTo(8, H / 2); g.lineTo(W - 8, H / 2); g.stroke();
+    g.strokeStyle = '#b48cff'; g.lineWidth = 2.2; g.beginPath();
+    for (let i = 0; i <= 600; i++) { const s = i / 600 * Math.PI * 2; const x = W / 2 + R * Math.sin(a * s + d), y = H / 2 - R * Math.sin(b * s); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+    const ph = (cur * 3 / 16) * Math.PI * 2;                        // 16 beats per lap
+    const x = W / 2 + R * Math.sin(a * ph + d), y = H / 2 - R * Math.sin(b * ph);
+    const beatFrac = (cur * 3) % 1, pulse = 1 + 0.6 * Math.exp(-beatFrac * 6);
+    g.fillStyle = 'rgba(205,242,106,.25)'; g.beginPath(); g.arc(x, y, 13 * pulse, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#cdf26a'; g.beginPath(); g.arc(x, y, 6.5, 0, Math.PI * 2); g.fill();
+    if (!reduce) requestAnimationFrame(draw);
+  }
+  draw(); if (reduce) setInterval(draw, 250);
+  layoutTimeline();
+  tick(0, false, true);
+})();
+</script>
+</body>
+</html>
